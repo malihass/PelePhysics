@@ -1,4 +1,5 @@
 """QSSA utilities."""
+
 import itertools
 
 import ceptr.qssa_graphs as cqg
@@ -51,8 +52,8 @@ def remove_quadratic_method_0(mechanism, qssa_species):
                 tryspecies_qssa.remove(species_remove)
             # Check if still creates problem
             if not qssa_coupling(mechanism, tryspecies_qssa):
-                # This combinaison works
-                # Does this combinaison contain entirely another successful combinaison
+                # This combination works
+                # Does this combination contain entirely another successful combination
                 # If yes, then we are removing too many species, do not include it as solution
                 add = True
                 for success_qssa_found in qssa_remove_proposal:
@@ -65,7 +66,7 @@ def remove_quadratic_method_0(mechanism, qssa_species):
     # Alphabetize, remove smallest set, break ties based on number of length of species name
     [x.sort() for x in qssa_remove_proposal]
     for x in qssa_remove_proposal:
-        print(f"Canditate QSSA species for removal: {x}")
+        print(f"Candidate QSSA species for removal: {x}")
     ordered = sorted(
         qssa_remove_proposal, key=lambda x: (len(x), sum([len(y) for y in x]))
     )

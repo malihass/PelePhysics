@@ -1,8 +1,8 @@
 """Utility functions used across ceptr."""
+
 import copy
-import sys
 from collections import Counter
-from math import isclose
+from math import exp, isclose, log
 
 import ceptr.constants as cc
 
@@ -10,6 +10,14 @@ import ceptr.constants as cc
 def intersection(lst1, lst2):
     """Return intersection of two lists."""
     return list(set(lst1).intersection(lst2))
+
+
+def sc_cutoff(exponent):
+    """Return cutoff for sc when using a fractional exponent."""
+    if exponent < 0:
+        return "1e-16"
+    else:
+        return "0.0"
 
 
 def qss_sorted_phase_space(mechanism, species_info, reaction, reagents, syms=None):
@@ -67,10 +75,17 @@ def qss_sorted_phase_space(mechanism, species_info, reaction, reagents, syms=Non
                         [f"sc_qss[{species_info.ordered_idx_map[symbol] - n_species}]"]
                         * int(order)
                     )
+                elif float(order) == 0.5:
+                    conc = (
+                        "std::sqrt(std::max(sc_qss"
+                        f"[{species_info.ordered_idx_map[symbol] - n_species}],"
+                        f" {sc_cutoff(0.5)}))"
+                    )
                 else:
                     conc = (
-                        f"pow(sc_qss[{species_info.ordered_idx_map[symbol] - n_species}],"
-                        f" {float(order):f})"
+                        "pow(sc_qss[std::max("
+                        f"{species_info.ordered_idx_map[symbol] - n_species}],"
+                        f" {sc_cutoff(order)}), {float(order):f})"
                     )
                 if record_symbolic_operations:
                     conc_smp = pow(
@@ -98,10 +113,28 @@ def qss_sorted_phase_space(mechanism, species_info, reaction, reagents, syms=Non
                             syms.sc_smp[species_info.ordered_idx_map[symbol]]
                             * syms.sc_smp[species_info.ordered_idx_map[symbol]]
                         )
+                elif order.is_integer():
+                    conc = "*".join(
+                        [f"sc[{species_info.ordered_idx_map[symbol]}]"] * int(order)
+                    )
+                    if record_symbolic_operations:
+                        conc_smp = syms.sc_smp[
+                            species_info.ordered_idx_map[symbol]
+                        ] ** int(order)
+                elif float(order) == 0.5:
+                    conc = (
+                        f"std::sqrt(std::max(sc[{species_info.ordered_idx_map[symbol]}],"
+                        f" {sc_cutoff(0.5)}))"
+                    )
+                    if record_symbolic_operations:
+                        conc_smp = pow(
+                            syms.sc_smp[species_info.ordered_idx_map[symbol]],
+                            float(order),
+                        )
                 else:
                     conc = (
-                        f"pow(sc[{species_info.ordered_idx_map[symbol]}],"
-                        f" {float(order):f})"
+                        f"pow(std::max(sc[{species_info.ordered_idx_map[symbol]}],"
+                        f" {sc_cutoff(order)}), {float(order):f})"
                     )
                     if record_symbolic_operations:
                         conc_smp = pow(
@@ -182,7 +215,9 @@ def fkc_conv_inv(self, mechanism, reaction, syms=None):
                 if record_symbolic_operations:
                     conversion_smp *= syms.refCinv_smp * syms.refCinv_smp
             else:
-                conversion = "*".join([f"pow(refCinv, {dim:f})"])
+                conversion = "*".join(
+                    [f"pow(std::max(refCinv, {sc_cutoff(dim)}), {dim:f})"]
+                )
                 if record_symbolic_operations:
                     conversion_smp *= syms.refCinv_smp**dim
     else:
@@ -191,7 +226,12 @@ def fkc_conv_inv(self, mechanism, reaction, syms=None):
             if record_symbolic_operations:
                 conversion_smp *= syms.refC_smp
         else:
-            conversion = "*".join([f"pow(refC, {abs(dim):f})"])
+            if dim.is_integer():
+                conversion = "*".join(["refC"] * int(dim))
+            else:
+                conversion = "*".join(
+                    [f"pow(std::max(refC, {sc_cutoff(abs(dim))}), {abs(dim):f})"]
+                )
             if record_symbolic_operations:
                 conversion_smp *= syms.refC_smp**dim
 
@@ -220,12 +260,22 @@ def kc_conv(mechanism, reaction):
             if dim == 2.0:
                 conversion = "*".join(["(refC * refC)"])
             else:
-                conversion = "*".join([f"pow(refC,{dim:f})"])
+                if dim.is_integer():
+                    conversion = "*".join(["refC"] * int(dim))
+                else:
+                    conversion = "*".join(
+                        [f"pow(std::max(refC, {sc_cutoff(dim)}),{dim:f})"]
+                    )
     else:
         if dim == -1.0:
             conversion = "*".join(["refCinv"])
         else:
-            conversion = "*".join([f"pow(refCinv,{abs(dim):f})"])
+            if dim.is_integer():
+                conversion = "*".join(["refCinv"] * int(dim))
+            else:
+                conversion = "*".join(
+                    [f"pow(std::max(refCinv, {sc_cutoff(abs(dim))}),{abs(dim):f})"]
+                )
 
     return conversion
 
@@ -347,12 +397,10 @@ def enhancement_d(mechanism, species_info, reaction, syms=None):
     third_body = reaction.third_body is not None
     falloff = reaction.rate.type == "falloff"
     if not third_body and not falloff:
-        print("enhancement_d called for a reaction without a third body")
-        sys.exit(1)
+        raise ValueError("enhancement_d called for a reaction without a third body")
 
     if not reaction.third_body:
-        print("FIXME EFFICIENCIES")
-        sys.exit(1)
+        raise NotImplementedError("FIXME EFFICIENCIES")
         species, coefficient = third_body
         if species == "<mixture>":
             if record_symbolic_operations:
@@ -403,3 +451,43 @@ def enhancement_d(mechanism, species_info, reaction, syms=None):
         return " + ".join(alpha).replace("+ -", "- "), enhancement_smp
     else:
         return " + ".join(alpha).replace("+ -", "- ")
+
+
+def evaluate_plog(rates, plog_pressure):
+    """Evaluate rate constants for a PLOG reaction."""
+    if plog_pressure <= rates[0][0]:
+        # Case 1: plog_pressure <= lower bound -> take lower bound:
+        plog_reaction = rates[0][1]
+        pef = plog_reaction.pre_exponential_factor
+        beta = plog_reaction.temperature_exponent
+        ae = plog_reaction.activation_energy
+        return pef, beta, ae
+    elif plog_pressure >= rates[-1][0]:
+        # Case 2: plog_pressure >= upper bound -> take upper bound:
+        plog_reaction = rates[-1][1]
+        pef = plog_reaction.pre_exponential_factor
+        beta = plog_reaction.temperature_exponent
+        ae = plog_reaction.activation_energy
+        return pef, beta, ae
+    else:
+        # Case 3: lower bound < plog_pressure < upper bound -> logarithmic interpolation:
+        for plog_p_i in range(len(rates) - 1):
+            if rates[plog_p_i][0] <= plog_pressure < rates[plog_p_i + 1][0]:
+                rate_low = rates[plog_p_i][1]
+                rate_high = rates[plog_p_i + 1][1]
+                interp_fac = (log(plog_pressure) - log(rates[plog_p_i][0])) / (
+                    log(rates[plog_p_i + 1][0]) - log(rates[plog_p_i][0])
+                )
+                pef = exp(
+                    log(rate_low.pre_exponential_factor) * (1 - interp_fac)
+                    + log(rate_high.pre_exponential_factor) * interp_fac
+                )
+                beta = (
+                    rate_low.temperature_exponent * (1 - interp_fac)
+                    + rate_high.temperature_exponent * interp_fac
+                )
+                ae = (
+                    rate_low.activation_energy * (1 - interp_fac)
+                    + rate_high.activation_energy * interp_fac
+                )
+                return pef, beta, ae

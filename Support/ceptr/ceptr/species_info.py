@@ -1,4 +1,5 @@
 """Species information."""
+
 from collections import OrderedDict
 
 import pandas as pd
@@ -45,6 +46,9 @@ class SpeciesInfo:
         self.nonqssa_species_formatted_list = []
         # number of non QSSA species
         self.n_species = 0
+
+        # list of surface species
+        self.surface_species_list = list()
 
         # all Species
         self.all_species = []
@@ -312,3 +316,12 @@ class SpeciesInfo:
 
         # Return a deepcopy to self
         self.wdot_df = wdot_df.copy(deep=True)
+
+    def set_low_high_temperatures(self, mechanism):
+        """Set low and high temperatures."""
+        self.low_temp = max(
+            mechanism.species(s).thermo.min_temp for s in self.nonqssa_species_list
+        )
+        self.high_temp = min(
+            mechanism.species(s).thermo.max_temp for s in self.nonqssa_species_list
+        )

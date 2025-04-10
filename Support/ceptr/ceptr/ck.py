@@ -1,4 +1,5 @@
 """CK routines."""
+
 import ceptr.constants as cc
 import ceptr.thermo as cth
 import ceptr.writer as cw
@@ -141,20 +142,13 @@ def ckcpbl(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         f"amrex::Real cpor[{n_species}]; " + cw.comment(" temporary storage"),
     )
 
     # call routine
-    cw.writer(fstream, "cp_R(cpor, tc);")
+    cw.writer(fstream, "cp_R(cpor, T);")
 
     # dot product
     cw.writer(fstream)
@@ -188,26 +182,15 @@ def ckcpbs(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0.0; ")
 
-    cw.writer(
-        fstream,
-        "const amrex::Real tT = T; " + cw.comment("temporary temperature"),
-    )
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(fstream)
 
-    species_coeffs = cth.analyze_thermodynamics(mechanism, species_info, 0)
+    models = cth.analyze_thermodynamics(mechanism, species_info.nonqssa_species_list)
     cw.writer(fstream, cw.comment("compute Cp/R at the given temperature"))
     cth.generate_thermo_routine(
         fstream,
         species_info,
         "cp_R",
-        cth.cp_nasa,
-        species_coeffs,
-        0,
+        models,
         0,
         None,
         True,
@@ -236,20 +219,13 @@ def ckcvbl(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         f"amrex::Real cvor[{n_species}]; " + cw.comment(" temporary storage"),
     )
 
     # call routine
-    cw.writer(fstream, "cv_R(cvor, tc);")
+    cw.writer(fstream, "cv_R(cvor, T);")
 
     # dot product
     cw.writer(fstream)
@@ -283,25 +259,13 @@ def ckcvbs(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0.0; ")
 
-    cw.writer(
-        fstream,
-        "const amrex::Real tT = T; " + cw.comment("temporary temperature"),
-    )
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
-    species_coeffs = cth.analyze_thermodynamics(mechanism, species_info, 0)
+    models = cth.analyze_thermodynamics(mechanism, species_info.nonqssa_species_list)
     cw.writer(fstream, cw.comment("compute Cv/R at the given temperature"))
     cth.generate_thermo_routine(
         fstream,
         species_info,
         "cv_R",
-        cth.cv_nasa,
-        species_coeffs,
-        0,
+        models,
         0,
         None,
         True,
@@ -334,13 +298,6 @@ def ckhbml(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         f"amrex::Real hml[{n_species}]; " + cw.comment(" temporary storage"),
@@ -348,12 +305,12 @@ def ckhbml(fstream, mechanism, species_info):
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
-    cw.writer(fstream, "speciesEnthalpy(hml, tc);")
+    cw.writer(fstream, "speciesEnthalpy(hml, T);")
 
     # dot product
     cw.writer(fstream)
@@ -383,26 +340,13 @@ def ckhbms(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0.0;")
 
-    # get temperature cache
-    cw.writer(
-        fstream,
-        "const amrex::Real tT = T; " + cw.comment("temporary temperature"),
-    )
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
-    species_coeffs = cth.analyze_thermodynamics(mechanism, species_info, 0)
+    models = cth.analyze_thermodynamics(mechanism, species_info.nonqssa_species_list)
     cth.generate_thermo_routine(
         fstream,
         species_info,
         "speciesEnthalpy",
-        cth.enthalpy_nasa,
-        species_coeffs,
+        models,
         0,
-        1,
         None,
         True,
     )
@@ -411,7 +355,7 @@ def ckhbms(fstream, mechanism, species_info):
     cw.writer(
         fstream,
         "const amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
@@ -435,13 +379,6 @@ def ckubml(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         f"amrex::Real uml[{n_species}]; " + cw.comment(" temporary energy array"),
@@ -449,12 +386,12 @@ def ckubml(fstream, mechanism, species_info):
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
-    cw.writer(fstream, "speciesInternalEnergy(uml, tc);")
+    cw.writer(fstream, "speciesInternalEnergy(uml, T);")
 
     # dot product
     cw.writer(fstream)
@@ -481,25 +418,13 @@ def ckubms(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0.0;")
 
-    cw.writer(
-        fstream,
-        "const amrex::Real tT = T; " + cw.comment("temporary temperature"),
-    )
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
-    species_coeffs = cth.analyze_thermodynamics(mechanism, species_info, 0)
+    models = cth.analyze_thermodynamics(mechanism, species_info.nonqssa_species_list)
     cth.generate_thermo_routine(
         fstream,
         species_info,
         "speciesInternalEnergy",
-        cth.internal_energy,
-        species_coeffs,
+        models,
         0,
-        1,
         None,
         True,
     )
@@ -508,7 +433,7 @@ def ckubms(fstream, mechanism, species_info):
     cw.writer(
         fstream,
         "const amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
@@ -533,25 +458,18 @@ def cksbml(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
     cw.writer(
         fstream,
         cw.comment("Log of normalized pressure in cgs units dynes/cm^2 by Patm"),
     )
     cw.writer(fstream, "amrex::Real logPratio = log ( P / 1013250.0 ); ")
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         f"amrex::Real sor[{n_species}]; " + cw.comment(" temporary storage"),
     )
 
     # call routine
-    cw.writer(fstream, "speciesEntropy(sor, tc);")
+    cw.writer(fstream, "speciesEntropy(sor, T);")
 
     # Equation 42
     cw.writer(fstream)
@@ -591,18 +509,11 @@ def cksbms(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
     cw.writer(
         fstream,
         cw.comment("Log of normalized pressure in cgs units dynes/cm^2 by Patm"),
     )
     cw.writer(fstream, "amrex::Real logPratio = log ( P / 1013250.0 ); ")
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         f"amrex::Real sor[{n_species}]; " + cw.comment(" temporary storage"),
@@ -635,11 +546,11 @@ def cksbms(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"x[{spec_idx}] = y[{spec_idx}]/({species.weight:f}*YOW); ",
+            f"x[{spec_idx}] = y[{spec_idx}]/({species.weight:.16e}*YOW); ",
         )
 
     # call routine
-    cw.writer(fstream, "speciesEntropy(sor, tc);")
+    cw.writer(fstream, "speciesEntropy(sor, T);")
 
     # Equation 42 and 43
     cw.writer(fstream, cw.comment("Perform computation in Eq 42 and 43"))
@@ -680,22 +591,15 @@ def ckgbml(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
     cw.writer(
         fstream,
         cw.comment("Log of normalized pressure in cgs units dynes/cm^2 by Patm"),
     )
     cw.writer(fstream, "amrex::Real logPratio = log ( P / 1013250.0 ); ")
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
     cw.writer(
@@ -705,7 +609,7 @@ def ckgbml(fstream, mechanism, species_info):
 
     # call routine
     cw.writer(fstream, cw.comment("Compute g/RT"))
-    cw.writer(fstream, "gibbs(gort, tc);")
+    cw.writer(fstream, "gibbs(gort, T);")
 
     # Equation 44
     cw.writer(fstream)
@@ -737,22 +641,15 @@ def ckgbms(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
     cw.writer(
         fstream,
         cw.comment("Log of normalized pressure in cgs units dynes/cm^2 by Patm"),
     )
     cw.writer(fstream, "amrex::Real logPratio = log ( P / 1013250.0 ); ")
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
     cw.writer(
@@ -787,11 +684,11 @@ def ckgbms(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"x[{spec_idx}] = y[{spec_idx}]/({species.weight:f}*YOW); ",
+            f"x[{spec_idx}] = y[{spec_idx}]/({species.weight:.16e}*YOW); ",
         )
 
     # call routine
-    cw.writer(fstream, "gibbs(gort, tc);")
+    cw.writer(fstream, "gibbs(gort, T);")
 
     # Equation 42 and 43
     cw.writer(fstream, cw.comment("Perform computation in Eq 44"))
@@ -827,22 +724,15 @@ def ckabml(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
     cw.writer(
         fstream,
         cw.comment("Log of normalized pressure in cgs units dynes/cm^2 by Patm"),
     )
     cw.writer(fstream, "amrex::Real logPratio = log ( P / 1013250.0 ); ")
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
     cw.writer(
@@ -852,7 +742,7 @@ def ckabml(fstream, mechanism, species_info):
 
     # call routine
     cw.writer(fstream, cw.comment("Compute g/RT"))
-    cw.writer(fstream, "helmholtz(aort, tc);")
+    cw.writer(fstream, "helmholtz(aort, T);")
 
     # Equation 44
     cw.writer(fstream)
@@ -889,22 +779,15 @@ def ckabms(fstream, mechanism, species_info):
 
     cw.writer(fstream, "amrex::Real result = 0; ")
 
-    # get temperature cache
     cw.writer(
         fstream,
         cw.comment("Log of normalized pressure in cgs units dynes/cm^2 by Patm"),
     )
     cw.writer(fstream, "amrex::Real logPratio = log ( P / 1013250.0 ); ")
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
     cw.writer(
@@ -939,11 +822,11 @@ def ckabms(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"x[{spec_idx}] = y[{spec_idx}]/({species.weight:f}*YOW); ",
+            f"x[{spec_idx}] = y[{spec_idx}]/({species.weight:.16e}*YOW); ",
         )
 
     # call routine
-    cw.writer(fstream, "helmholtz(aort, tc);")
+    cw.writer(fstream, "helmholtz(aort, T);")
 
     # Equation 42 and 43
     cw.writer(fstream, cw.comment("Perform computation in Eq 44"))
@@ -985,15 +868,15 @@ def ckpx(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"XW += x[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"XW += x[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
 
     cw.writer(
         fstream,
         "P = rho *"
         f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} * T"
-        " / XW; "
-        + cw.comment("P = rho*R*T/W"),
+        " / XW; " + cw.comment("P = rho*R*T/W"),
     )
 
     cw.writer(fstream)
@@ -1032,8 +915,7 @@ def ckpy(fstream, mechanism, species_info):
         fstream,
         "P = rho *"
         f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} * T"
-        " * YOW; "
-        + cw.comment("P = rho*R*T/W"),
+        " * YOW; " + cw.comment("P = rho*R*T/W"),
     )
 
     cw.writer(fstream)
@@ -1067,7 +949,8 @@ def ckpc(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"W += c[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"W += c[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
 
     cw.writer(fstream)
@@ -1080,8 +963,7 @@ def ckpc(fstream, mechanism, species_info):
         fstream,
         "P = rho *"
         f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} * T"
-        " * sumC / W; "
-        + cw.comment("P = rho*R*T/W"),
+        " * sumC / W; " + cw.comment("P = rho*R*T/W"),
     )
 
     cw.writer(fstream)
@@ -1113,15 +995,15 @@ def ckrhox(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"XW += x[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"XW += x[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
 
     cw.writer(
         fstream,
         "rho = P * XW /"
         f" ({(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} *"
-        " T); "
-        + cw.comment("rho = P*W/(R*T)"),
+        " T); " + cw.comment("rho = P*W/(R*T)"),
     )
 
     cw.writer(fstream)
@@ -1153,8 +1035,7 @@ def ckrhoy(fstream, mechanism, species_info):
         fstream,
         "rho = P /"
         f" ({(cc.R * cc.ureg.mole * cc.ureg.kelvin / cc.ureg.erg).m:1.14e} * T"
-        " * YOW);"
-        + cw.comment("rho = P*W/(R*T)"),
+        " * YOW);" + cw.comment("rho = P*W/(R*T)"),
     )
 
     cw.writer(fstream, "}")
@@ -1185,7 +1066,8 @@ def ckrhoc(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"W += c[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"W += c[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
 
     cw.writer(fstream)
@@ -1266,7 +1148,8 @@ def ckmmwx(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"XW += x[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"XW += x[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
     cw.writer(fstream, "wtm = XW;")
     cw.writer(fstream)
@@ -1296,13 +1179,14 @@ def ckmmwc(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"W += c[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"W += c[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
     cw.writer(fstream)
     cw.writer(fstream, f"for (int id = 0; id < {n_species}; ++id) {{")
     cw.writer(fstream, "sumC += c[id];")
     cw.writer(fstream, "}")
-    cw.writer(fstream, cw.comment(" CK provides no guard against divison by zero"))
+    cw.writer(fstream, cw.comment(" CK provides no guard against division by zero"))
     cw.writer(fstream, "wtm = W/sumC;")
     cw.writer(fstream)
 
@@ -1322,16 +1206,8 @@ def ckcpor(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "cp_R(cpor, tc);")
+    cw.writer(fstream, "cp_R(cpor, T);")
     cw.writer(fstream, "}")
 
 
@@ -1348,16 +1224,8 @@ def ckhort(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "speciesEnthalpy(hort, tc);")
+    cw.writer(fstream, "speciesEnthalpy(hort, T);")
     cw.writer(fstream, "}")
 
 
@@ -1374,16 +1242,8 @@ def cksor(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "speciesEntropy(sor, tc);")
+    cw.writer(fstream, "speciesEntropy(sor, T);")
     cw.writer(fstream, "}")
 
 
@@ -1520,7 +1380,8 @@ def ckxty(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"XW += x[{spec_idx}]*{species.weight:f}; " + cw.comment(f"{species.name}"),
+            f"XW += x[{spec_idx}]*{species.weight:.16e}; "
+            + cw.comment(f"{species.name}"),
         )
 
     # now compute conversion
@@ -1531,7 +1392,7 @@ def ckxty(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[spec_idx]
         cw.writer(
             fstream,
-            f"y[{spec_idx}] = x[{spec_idx}]*{species.weight:f}*XWinv; ",
+            f"y[{spec_idx}] = x[{spec_idx}]*{species.weight:.16e}*XWinv; ",
         )
 
     cw.writer(fstream)
@@ -1560,8 +1421,7 @@ def ckxtcp(fstream, mechanism, species_info):
         fstream,
         "amrex::Real PORT ="
         f" P/({(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} *"
-        " T); "
-        + cw.comment("P/RT"),
+        " T); " + cw.comment("P/RT"),
     )
     # now compute conversion
     cw.writer(fstream)
@@ -1604,7 +1464,7 @@ def ckxtcr(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[sp]
         cw.writer(
             fstream,
-            f"XW += x[{species.idx}]*{species.weight:f}; "
+            f"XW += x[{species.idx}]*{species.weight:.16e}; "
             + cw.comment(f"{species.name}"),
         )
 
@@ -1682,7 +1542,7 @@ def ckcty(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[sp]
         cw.writer(
             fstream,
-            f"CW += c[{species.idx}]*{species.weight:f}; "
+            f"CW += c[{species.idx}]*{species.weight:.16e}; "
             + cw.comment(f"{species.name}"),
         )
 
@@ -1693,7 +1553,7 @@ def ckcty(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[sp]
         cw.writer(
             fstream,
-            f"y[{species.idx}] = c[{species.idx}]*{species.weight:f}*CWinv; ",
+            f"y[{species.idx}] = c[{species.idx}]*{species.weight:.16e}*CWinv; ",
         )
 
     cw.writer(fstream)
@@ -1718,16 +1578,8 @@ def ckcvml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "cv_R(cvml, tc);")
+    cw.writer(fstream, "cv_R(cvml, T);")
 
     # convert cv/R to cv
     cw.writer(fstream)
@@ -1756,16 +1608,8 @@ def ckcpml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "cp_R(cpml, tc);")
+    cw.writer(fstream, "cp_R(cpml, T);")
 
     # convert cp/R to cp
     cw.writer(fstream)
@@ -1794,22 +1638,15 @@ def ckuml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
-    cw.writer(fstream, "speciesInternalEnergy(uml, tc);")
+    cw.writer(fstream, "speciesInternalEnergy(uml, T);")
 
     # convert e/RT to e with molar units
     cw.writer(fstream)
@@ -1834,22 +1671,15 @@ def ckhml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
-    cw.writer(fstream, "speciesEnthalpy(hml, tc);")
+    cw.writer(fstream, "speciesEnthalpy(hml, T);")
 
     # convert h/RT to h with molar units
     cw.writer(fstream)
@@ -1874,22 +1704,15 @@ def ckgml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
-    cw.writer(fstream, "gibbs(gml, tc);")
+    cw.writer(fstream, "gibbs(gml, T);")
 
     # convert g/RT to g with molar units
     cw.writer(fstream)
@@ -1914,22 +1737,15 @@ def ckaml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
-    cw.writer(fstream, "helmholtz(aml, tc);")
+    cw.writer(fstream, "helmholtz(aml, T);")
 
     # convert A/RT to A with molar units
     cw.writer(fstream)
@@ -1956,16 +1772,8 @@ def cksml(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "speciesEntropy(sml, tc);")
+    cw.writer(fstream, "speciesEntropy(sml, T);")
 
     # convert s/R to s
     cw.writer(fstream)
@@ -1992,16 +1800,8 @@ def ckcvms(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "cv_R(cvms, tc);")
+    cw.writer(fstream, "cv_R(cvms, T);")
 
     # convert cv/R to cv with mass units
     cw.writer(fstream, cw.comment("multiply by R/molecularweight"))
@@ -2030,16 +1830,8 @@ def ckcpms(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "cp_R(cpms, tc);")
+    cw.writer(fstream, "cp_R(cpms, T);")
 
     # convert cp/R to cp with mass units
     cw.writer(fstream, cw.comment("multiply by R/molecularweight"))
@@ -2068,23 +1860,16 @@ def ckums(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
     cw.writer(fstream)
-    cw.writer(fstream, "speciesInternalEnergy(ums, tc);")
+    cw.writer(fstream, "speciesInternalEnergy(ums, T);")
     cw.writer(fstream)
 
     cw.writer(fstream, f"for (int i = 0; i < {n_species}; i++)")
@@ -2107,23 +1892,16 @@ def ckhms(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { 0, tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
     cw.writer(fstream)
-    cw.writer(fstream, "speciesEnthalpy(hms, tc);")
+    cw.writer(fstream, "speciesEnthalpy(hms, T);")
     cw.writer(fstream)
 
     cw.writer(fstream, f"for (int i = 0; i < {n_species}; i++)")
@@ -2146,23 +1924,16 @@ def ckgms(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
     cw.writer(fstream)
-    cw.writer(fstream, "gibbs(gms, tc);")
+    cw.writer(fstream, "gibbs(gms, T);")
     cw.writer(fstream)
 
     cw.writer(fstream, f"for (int i = 0; i < {n_species}; i++)")
@@ -2185,23 +1956,16 @@ def ckams(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
     cw.writer(
         fstream,
         "amrex::Real RT ="
-        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*tT; "
+        f" {(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e}*T; "
         + cw.comment("R*T"),
     )
 
     # call routine
     cw.writer(fstream)
-    cw.writer(fstream, "helmholtz(ams, tc);")
+    cw.writer(fstream, "helmholtz(ams, T);")
 
     cw.writer(fstream, f"for (int i = 0; i < {n_species}; i++)")
     cw.writer(fstream, "{")
@@ -2222,16 +1986,8 @@ def cksms(fstream, mechanism, species_info):
     )
     cw.writer(fstream, "{")
 
-    # get temperature cache
-    cw.writer(fstream, "amrex::Real tT = T; " + cw.comment("temporary temperature"))
-    cw.writer(
-        fstream,
-        "const amrex::Real tc[5] = { log(tT), tT, tT*tT, tT*tT*tT, tT*tT*tT*tT }; "
-        + cw.comment("temperature cache"),
-    )
-
     # call routine
-    cw.writer(fstream, "speciesEntropy(sms, tc);")
+    cw.writer(fstream, "speciesEntropy(sms, T);")
 
     # convert s/R to s with mass units
     cw.writer(fstream, cw.comment("multiply by R/molecularweight"))
@@ -2375,8 +2131,7 @@ def ckwxp(fstream, mechanism, species_info):
         fstream,
         "amrex::Real PORT = 1e6 *"
         f" P/({(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} *"
-        " T); "
-        + cw.comment("1e6 * P/RT so c goes to SI units"),
+        " T); " + cw.comment("1e6 * P/RT so c goes to SI units"),
     )
 
     # now compute conversion
@@ -2479,7 +2234,7 @@ def ckwxr(fstream, mechanism, species_info):
         species = species_info.nonqssa_species[sp]
         cw.writer(
             fstream,
-            f"XW += x[{species.idx}]*{species.weight:f}; "
+            f"XW += x[{species.idx}]*{species.weight:.16e}; "
             + cw.comment(f"{species.name}"),
         )
 
@@ -2672,9 +2427,15 @@ def temp_given_hy(fstream):
 
 
 # NEED TO DEAL WITH THIS WHEN QSS
-def ckinu(fstream, mechanism, species_info, reaction_info):
-    """Write ckinu."""
+def ckinu(fstream, mechanism, species_info, reaction_info, write_sk=False):
+    """Write ckinu/skinu."""
     n_reactions = mechanism.n_reactions
+    n_gas_reactions = reaction_info.n_reactions
+    phase = "surface" if write_sk else "gas"
+    function_prefix = "S" if write_sk else "C"
+    function_args = (
+        "int* /*ki*/, int* /*nu*/" if n_reactions == 0 else "int ki[], int nu[]"
+    )
 
     maxsp = 0
 
@@ -2683,6 +2444,16 @@ def ckinu(fstream, mechanism, species_info, reaction_info):
     nu = [[] for _ in range(n_reactions)]
 
     for orig_idx, _ in reaction_info.idxmap.items():
+
+        # ignore heterogeneous reactions for CKINU and homogeneous reactions for SKINU
+        if (phase == "gas" and orig_idx >= n_gas_reactions) or (
+            phase == "surface" and orig_idx < n_gas_reactions
+        ):
+            continue
+        # ensure orig_idx is in the range 0, NUM_SURFACE_REACTIONS for SKINU
+        if phase == "surface":
+            orig_idx -= n_gas_reactions
+
         reaction = mechanism.reaction(orig_idx)
 
         for symbol, coefficient in reaction.reactants.items():
@@ -2695,6 +2466,15 @@ def ckinu(fstream, mechanism, species_info, reaction_info):
         maxsp = max(maxsp, len(ki[orig_idx]))
 
     for orig_idx, _ in reaction_info.idxmap.items():
+        # ignore heterogeneous reactions for CKINU and homogeneous reactions for SKINU
+        if (phase == "gas" and orig_idx >= n_gas_reactions) or (
+            phase == "surface" and orig_idx < n_gas_reactions
+        ):
+            continue
+        # ensure orig_idx is in the range 0, NUM_SURFACE_REACTIONS for SKINU
+        if phase == "surface":
+            orig_idx -= n_gas_reactions
+
         reaction = mechanism.reaction(orig_idx)
 
         ns[orig_idx] = len(ki[orig_idx])
@@ -2705,37 +2485,39 @@ def ckinu(fstream, mechanism, species_info, reaction_info):
     cw.writer(fstream)
     cw.writer(
         fstream,
-        cw.comment("Returns a count of species in a reaction, and their indices"),
+        cw.comment(
+            f"Returns a count of {phase} species in a {phase} "
+            "reaction, and their indices"
+        ),
     )
     cw.writer(fstream, cw.comment("and stoichiometric coefficients. (Eq 50)"))
-    if n_reactions == 0:
-        cw.writer(
-            fstream,
-            "void CKINU"
-            + cc.sym
-            + "(const int i, int& nspec, int* /*ki*/, int* /*nu*/)",
-        )
-    else:
-        cw.writer(
-            fstream,
-            "void CKINU" + cc.sym + "(const int i, int& nspec, int ki[], int nu[])",
-        )
+    cw.writer(
+        fstream,
+        f"void {function_prefix}KINU"
+        + cc.sym
+        + f"(const int i, int& nspec, {function_args})",
+    )
     cw.writer(fstream, "{")
 
     if n_reactions > 0:
         str_ns = ",".join(str(x) for x in ns)
-        cw.writer(fstream, f"const int ns[{n_reactions}] =\n     {{{str_ns:s}}};")
+        cw.writer(
+            fstream,
+            f"const int ns[NUM_{phase.upper()}_REACTIONS] =\n     {{{str_ns:s}}};",
+        )
 
         str_ki = ",".join(",".join(str(x) for x in ki[j]) for j in range(n_reactions))
         cw.writer(
             fstream,
-            f"const int kiv[{n_reactions * maxsp}] =\n     {{{str_ki:s}}};",
+            f"const int kiv[NUM_{phase.upper()}_REACTIONS*{maxsp}] =\n    "
+            f" {{{str_ki:s}}};",
         )
 
         str_nu = ",".join(",".join(str(x) for x in nu[j]) for j in range(n_reactions))
         cw.writer(
             fstream,
-            f"const int nuv[{n_reactions * maxsp}] =\n     {{{str_nu:s}}};",
+            f"const int nuv[NUM_{phase.upper()}_REACTIONS*{maxsp}] =\n    "
+            f" {{{str_nu:s}}};",
         )
 
     cw.writer(fstream, "if (i < 1) {")
@@ -2747,7 +2529,7 @@ def ckinu(fstream, mechanism, species_info, reaction_info):
     if n_reactions == 0:
         cw.writer(fstream, "nspec = -1;")
     else:
-        cw.writer(fstream, f"if (i > {n_reactions}) {{")
+        cw.writer(fstream, f"if (i > NUM_{phase.upper()}_REACTIONS) {{")
         cw.writer(fstream, "nspec = -1;")
         cw.writer(fstream, "} else {")
 
@@ -2786,8 +2568,7 @@ def ckkfkr(fstream, mechanism, species_info):
         fstream,
         "amrex::Real PORT = 1e6 *"
         f" P/({(cc.R * cc.ureg.kelvin * cc.ureg.mole / cc.ureg.erg).m:1.14e} *"
-        " T); "
-        + cw.comment("1e6 * P/RT so c goes to SI units"),
+        " T); " + cw.comment("1e6 * P/RT so c goes to SI units"),
     )
 
     # now compute conversion

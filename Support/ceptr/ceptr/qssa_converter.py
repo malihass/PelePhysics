@@ -1,6 +1,6 @@
 """QSSA functions needed for conversion."""
+
 import copy
-import sys
 from collections import Counter, OrderedDict, defaultdict
 from math import isclose
 
@@ -122,8 +122,7 @@ def qssa_validation(mechanism, species_info, reaction_info):
     # Check that QSSA species are all species used in the given mechanism
     for s in species_info.qssa_species_list:
         if s not in species_info.all_species_list:
-            text = "species " + s + " is not in the mechanism"
-            sys.exit(text)
+            raise ValueError(f"species {s} is not in the mechanism")
 
     # Check that QSSA species are consumed/produced at least once to
     # ensure theoretically valid QSSA option (There is more to it than
@@ -150,13 +149,11 @@ def qssa_validation(mechanism, species_info, reaction_info):
                     consumed += 1
 
         if consumed == 0 or produced == 0:
-            text = (
-                "Uh Oh! QSSA species "
-                + symbol
-                + " does not have a balanced consumption/production"
-                + "relationship in mechanism => bad QSSA choice"
+            raise ValueError(
+                f"Uh Oh! QSSA species {symbol}"
+                " does not have a balanced consumption/production"
+                "relationship in mechanism => bad QSSA choice"
             )
-            sys.exit(text)
 
 
 def qssa_coupling(mechanism, species_info, reaction_info):
@@ -183,11 +180,10 @@ def qssa_coupling(mechanism, species_info, reaction_info):
                             product == species_info.qssa_species_list[j]
                             for product, _ in reaction.products.items()
                         ):
-                            sys.exit(
-                                "Species "
-                                + species_info.qssa_species_list[j]
-                                + " appears as both prod and reacts. Check reaction "
-                                + reaction.equation
+                            raise ValueError(
+                                f"Species {species_info.qssa_species_list[j]} appears"
+                                " as both prod and reacts. Check reaction"
+                                f" {reaction.equation}"
                             )
 
                     # we know j is in reaction r. Options are
@@ -313,11 +309,10 @@ def qssa_coupling(mechanism, species_info, reaction_info):
                             product == species_info.qssa_species_list[j]
                             for product, _ in reaction.products.items()
                         ):
-                            sys.exit(
-                                "Species "
-                                + species_info.qssa_species_list[j]
-                                + " appears as both prod and reacts. Check reaction "
-                                + reaction.equation
+                            raise ValueError(
+                                f"Species {species_info.qssa_species_list[j]} appears"
+                                " as both prod and reacts. Check reaction"
+                                f" {reaction.equation}"
                             )
 
                     if reaction.reversible:
@@ -404,7 +399,7 @@ def qssa_coupling(mechanism, species_info, reaction_info):
     print("\n\n SC network for QSSA: ")
     print(species_info.qssa_info.scnet)
     if is_coupling:
-        sys.exit(
+        raise ValueError(
             "There is some quadratic coupling in mechanism."
             + "Here is the list of reactions to check: \n"
             + coupling_reactions
@@ -463,11 +458,11 @@ def get_qssa_groups(mechanism, species_info, reaction_info):
     this includes two-way dependencies: (s1 needs s2) and (s2 needs s1) => group
     and cyclical dependencies: (s1 needs s2) and (s2 needs s3) and (s3 needs s1) => group
 
-    This function along with find_closed_cycle is an implmentation of:
+    This function along with find_closed_cycle is an implementation of:
 
     Tarjan's Strongly Connected Components Algorithm (1972)
 
-    where node "index" is stored implictly via the location of the
+    where node "index" is stored implicitly via the location of the
     node in the lowest_link OrderedDict and boolean "onStack"
     information is stored implicitly by checking for node existence in
     potential_group
@@ -606,7 +601,7 @@ def find_closed_cycle(mechanism, species_info, species):
             # Since the child has been discovered already during this
             # search, that means it is in the group but still in the
             # recursion process, Update the parent's lowest link value
-            # with this childs discovery order
+            # with this child's discovery order
             species_info.qssa_info.lowest_link[parent] = min(
                 species_info.qssa_info.lowest_link[parent],
                 list(species_info.qssa_info.lowest_link.keys()).index(child),
@@ -733,7 +728,7 @@ def update_group_needs(mechanism, species_info, reaction_info):
                 not_in_group = True
                 # for the other groups
                 for other_group in other_groups:
-                    # if the other group hasn't alredy been accounted
+                    # if the other group hasn't already been accounted
                     # for and the species is in that group, then that
                     # other group depends on a species in the current
                     # group
@@ -793,7 +788,7 @@ def update_group_needs(mechanism, species_info, reaction_info):
 
 
 def update_group_dependencies(mechanism, species_info, reaction_info):
-    """Update solo species dependendent on group members with group names.
+    """Update solo species dependent on group members with group names.
 
     species needs member -> species needs group
     species is needed by group member -> species is needed by group
@@ -1437,9 +1432,7 @@ def qssa_coeff_functions(fstream, mechanism, species_info, reaction_info, syms):
                 special_first = False
             ispecial_qssa[1] = reaction_info.qssa_reactions.index(reac_id) + 1
 
-    if len(reaction_info.index) != 7:
-        print("\n\nCheck this!!!\n")
-        sys.exit(1)
+    assert len(reaction_info.index) == 7
 
     # qssa coefficients
     cw.writer(fstream)
@@ -1448,11 +1441,12 @@ def qssa_coeff_functions(fstream, mechanism, species_info, reaction_info, syms):
         "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void comp_qss_coeff"
         + "(amrex::Real * k_f, amrex::Real * qf, amrex::Real * qr, const"
         " amrex::Real * sc,"
-        + "const amrex::Real * tc, amrex::Real * g_RT, amrex::Real * g_RT_qss)",
+        + "const amrex::Real T, amrex::Real * g_RT, amrex::Real * g_RT_qss)",
     )
     cw.writer(fstream, "{")
 
-    cw.writer(fstream, "const amrex::Real invT = 1.0 / tc[1];")
+    cw.writer(fstream, "const amrex::Real invT = 1.0 / T;")
+    cw.writer(fstream, "const amrex::Real logT = log(T);")
     cw.writer(fstream)
 
     if mechanism.n_reactions == 0:
@@ -1547,11 +1541,10 @@ def qssa_coeff_functions(fstream, mechanism, species_info, reaction_info, syms):
             elif is_lindemann:
                 pass
             else:
-                print(
+                raise ValueError(
                     f"Unrecognized reaction rate type {reaction.rate.type},"
                     f" {reaction.rate.sub_type} for reaction: {reaction.equation}"
                 )
-                sys.exit(1)
 
             beta = syms.convert_number_to_int(beta)
             low_beta = syms.convert_number_to_int(low_beta)
@@ -1652,12 +1645,12 @@ def qssa_coeff_functions(fstream, mechanism, species_info, reaction_info, syms):
             redp_smp = corr_smp / syms.kf_qss_smp[idx] * coeff
             cw.writer(
                 fstream,
-                f"           * exp({low_beta:.15g}  * tc[0] -"
+                f"           * exp({low_beta:.15g}  * logT -"
                 f" {(1.0 / cc.Rc / cc.ureg.kelvin).m * low_ae.m:.15g} *"
                 " invT);",
             )
             coeff = (1.0 / cc.Rc / cc.ureg.kelvin).m * low_ae.m
-            redp_smp *= sme.exp(low_beta * syms.tc_smp[0] - coeff * syms.invT_smp)
+            redp_smp *= sme.exp(low_beta * syms.logT_smp - coeff * syms.invT_smp)
             if is_troe:
                 cw.writer(fstream, "const amrex::Real F = redP / (1.0 + redP);")
                 f_smp = redp_smp / (1.0 + redp_smp)
@@ -1669,14 +1662,11 @@ def qssa_coeff_functions(fstream, mechanism, species_info, reaction_info, syms):
                     if 1.0 - troe[0] != 0:
                         cw.writer(
                             fstream,
-                            f"    {1.0 - troe[0]:.15g} * exp(-tc[1] *"
-                            f" {1 / troe[1]:.15g})",
+                            f"    {1.0 - troe[0]:.15g} * exp(-T * {1 / troe[1]:.15g})",
                         )
                         first_factor = syms.convert_number_to_int(1.0 - troe[0])
                         second_factor = syms.convert_number_to_int(-1 / troe[1])
-                        int_smp += first_factor * sme.exp(
-                            syms.tc_smp[1] * second_factor
-                        )
+                        int_smp += first_factor * sme.exp(syms.T_smp * second_factor)
                 else:
                     cw.writer(fstream, "     0.0 ")
                     int_smp += 0.0
@@ -1684,13 +1674,11 @@ def qssa_coeff_functions(fstream, mechanism, species_info, reaction_info, syms):
                     if troe[0] != 0:
                         cw.writer(
                             fstream,
-                            f"    + {troe[0]:.15g} * exp(-tc[1] * {1 / troe[2]:.15g})",
+                            f"    + {troe[0]:.15g} * exp(-T * {1 / troe[2]:.15g})",
                         )
                         first_factor = syms.convert_number_to_int(troe[0])
                         second_factor = syms.convert_number_to_int(-1 / troe[2])
-                        int_smp += first_factor * sme.exp(
-                            syms.tc_smp[1] * second_factor
-                        )
+                        int_smp += first_factor * sme.exp(syms.T_smp * second_factor)
                 else:
                     cw.writer(fstream, "     0.0 ")
                     int_smp += 0.0
@@ -1972,16 +1960,15 @@ def qssa_component_functions(
                 special_first = False
             ispecial_qssa[1] = reaction_info.qssa_reactions.index(reac_id) + 1
 
-    if len(reaction_info.index) != 7:
-        print("\n\nCheck this!!!\n")
-        sys.exit(1)
+    assert len(reaction_info.index) == 7
 
     # k_f_qssa function
     cw.writer(fstream)
     cw.writer(
         fstream,
         "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void comp_k_f_qss"
-        + "(const amrex::Real * tc, amrex::Real invT, amrex::Real * k_f)",
+        + "(const amrex::Real T, const amrex::Real invT, const amrex::Real logT,"
+        " amrex::Real * k_f)",
     )
     cw.writer(fstream, "{")
     for index, qssa_reac in enumerate(reaction_info.qssa_reactions):
@@ -2048,11 +2035,10 @@ def qssa_component_functions(
             elif is_lindemann:
                 pass
             else:
-                print(
+                raise ValueError(
                     f"Unrecognized reaction rate type {reaction.rate.type},"
                     f" {reaction.rate.sub_type} for reaction: {reaction.equation}"
                 )
-                sys.exit(1)
 
         cw.writer(fstream, f"k_f[{index}] = {pef.m:.15g}")
         syms.kf_qss_smp_tmp[index] = pef.m
@@ -2061,8 +2047,8 @@ def qssa_component_functions(
             cw.writer(fstream, "           ;")
         else:
             if ae == 0:
-                cw.writer(fstream, f"           * exp(({beta:.15g}) * tc[0]);")
-                syms.kf_qss_smp_tmp[index] *= sme.exp(beta * syms.tc_smp[0])
+                cw.writer(fstream, f"           * exp(({beta:.15g}) * logT);")
+                syms.kf_qss_smp_tmp[index] *= sme.exp(beta * syms.logT_smp)
             elif beta == 0:
                 cw.writer(
                     fstream,
@@ -2076,12 +2062,12 @@ def qssa_component_functions(
             else:
                 cw.writer(
                     fstream,
-                    f"           * exp(({beta:.15g}) * tc[0] -"
+                    f"           * exp(({beta:.15g}) * logT -"
                     f" ({(1.0 / cc.Rc / cc.ureg.kelvin * ae).m:.15g}) * invT);",
                 )
                 coeff = (((1.0 / cc.Rc / cc.ureg.kelvin)) * ae).magnitude
                 syms.kf_qss_smp_tmp[index] *= sme.exp(
-                    beta * syms.tc_smp[0] - coeff * syms.invT_smp
+                    beta * syms.logT_smp - coeff * syms.invT_smp
                 )
 
     cw.writer(fstream)
@@ -2197,16 +2183,6 @@ def qssa_component_functions(
             syms.sc_qss_smp[species_info.qssa_species_list.index(symbol)] = (
                 -numerator_smp / denominator_smp
             )
-            # print(f"Starting simplification of fraction for {symbol}...")
-            # times = time.time()
-            # syms.sc_qss_smp[
-            #    species_info.qssa_species_list.index(symbol)
-            # ] = smp.cancel(
-            #    syms.sc_qss_smp[species_info.qssa_species_list.index(symbol)]
-            # )
-            # timee = time.time()
-            # print(f"Time to simplify = {timee-times}")
-            # exit()
             cw.writer(fstream)
         # This case happens for dodecane_lu_qss
         if symbol in list(species_info.qssa_info.group.keys()):

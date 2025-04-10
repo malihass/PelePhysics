@@ -20,6 +20,7 @@ CPickler.py_gpu
 dodecane_wang.cpp_opt3
 drm19.cpp_OK
 callgrind.out*
+.ccls-cache
 
 # AMReX build directories
 d/
@@ -64,6 +65,5 @@ SAVE/
 SAVE_file*/
 NO_GIT
 SuiteSparse
-sundials
 ThirdParty/INSTALL
 ThirdParty/BUILD

@@ -1,4 +1,5 @@
 """Reaction information."""
+
 from collections import OrderedDict
 
 import ceptr.constants as cc
@@ -8,7 +9,7 @@ import ceptr.writer as cw
 class ReactionInfo:
     """Information on reactions."""
 
-    def __init__(self, mechanism):
+    def __init__(self, mechanism, interface):
         """Initialize the reaction information."""
         self.n_reactions = mechanism.n_reactions
         self.rs = []
@@ -26,10 +27,17 @@ class ReactionInfo:
         self.n_qssa_reactions = 0
         self.qfqr_co_idx_map = []
 
+        self.has_plog_reactions = False
 
-def sort_reactions(mechanism):
+        if interface is not None:
+            self.rs_unsorted += interface.reactions()
+
+        self.has_reactions = len(self.rs_unsorted) > 0
+
+
+def sort_reactions(mechanism, interface):
     """Sort reactions."""
-    reaction_info = ReactionInfo(mechanism)
+    reaction_info = ReactionInfo(mechanism, interface)
     i = 0
 
     # troe
@@ -68,10 +76,21 @@ def sort_reactions(mechanism):
                 i += 1
     reaction_info.index.append(i)
 
-    # simplest case
+    # simplest case (Arrhenius reactions)
     for k, r in enumerate(reaction_info.rs_unsorted):
         if r not in reaction_info.rs:
+            # skip all interface-Arrhenius and sticking-Arrhenius heterogeneous reactions
+            # heterogeneous reactions are added after all the homogeneous reactions
+            if (
+                r.reaction_type == "interface-Arrhenius"
+                or r.reaction_type == "sticking-Arrhenius"
+            ):
+                continue
+
             if r.third_body is None:
+                # Check for PLOG reactions on the fly
+                if r.reaction_type == "pressure-dependent-Arrhenius":
+                    reaction_info.has_plog_reactions = True
                 reaction_info.idxmap[k] = i
                 reaction_info.rs.append(r)
                 i += 1
@@ -80,41 +99,63 @@ def sort_reactions(mechanism):
     # everything else
     for k, r in enumerate(reaction_info.rs_unsorted):
         if r not in reaction_info.rs:
+            # skip all interface-Arrhenius and sticking-Arrhenius heterogeneous reactions
+            # heterogeneous reactions are added after all the homogeneous reactions
+            if (
+                r.reaction_type == "interface-Arrhenius"
+                or r.reaction_type == "sticking-Arrhenius"
+            ):
+                continue
+
             reaction_info.idxmap[k] = i
             reaction_info.rs.append(r)
             i += 1
     reaction_info.index.append(i)
+
+    # surface reactions
+    if interface is not None:
+        for k, r in enumerate(reaction_info.rs_unsorted):
+            if r not in reaction_info.rs and r.reaction_type == "interface-Arrhenius":
+                reaction_info.idxmap[k] = i
+                reaction_info.rs.append(r)
+                i += 1
+        reaction_info.index.append(i)
+
+        for k, r in enumerate(reaction_info.rs_unsorted):
+            if r not in reaction_info.rs and r.reaction_type == "sticking-Arrhenius":
+                reaction_info.idxmap[k] = i
+                reaction_info.rs.append(r)
+                i += 1
+        reaction_info.index.append(i)
 
     reaction_info.is_sorted = True
 
     return reaction_info
 
 
-def rmap(fstream, mechanism, reaction_info):
+def rmap(fstream, reaction_info):
     """Write reverse reaction map."""
     rmap = reaction_info.idxmap.keys()
-    n_reactions = mechanism.n_reactions
     str_rmap = ",".join(str(x) for x in rmap)
-    if n_reactions > 0:
-        cw.writer(fstream, f"const int rmap[{n_reactions}] = {{{str_rmap}}};")
+    if reaction_info.has_reactions:
+        cw.writer(fstream, f"const int rmap[NUM_REACTIONS] = {{{str_rmap}}};")
 
 
-def get_rmap(fstream, mechanism):
+def get_rmap(fstream, reaction_info):
     """Write function for reverse reaction map."""
-    n_reactions = mechanism.n_reactions
     cw.writer(fstream)
     cw.writer(fstream, cw.comment("Returns 0-based map of reaction order"))
     cw.writer(fstream, "void GET_RMAP" + cc.sym)
 
-    if n_reactions > 0:
+    if reaction_info.has_reactions:
         cw.writer(fstream, "(int * _rmap)")
     else:
         cw.writer(fstream, "(int * /*_rmap*/)")
 
     cw.writer(fstream, "{")
 
-    if n_reactions > 0:
-        cw.writer(fstream, f"for (int j=0; j<{n_reactions}; ++j)")
+    if reaction_info.has_reactions:
+        cw.writer(fstream, "for (int j=0; j<NUM_REACTIONS; ++j)")
         cw.writer(fstream, "{")
         cw.writer(fstream, "_rmap[j] = rmap[j];")
         cw.writer(fstream, "}")

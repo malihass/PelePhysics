@@ -1,4 +1,5 @@
 """Symbolic math for symbolic differentiation."""
+
 import re
 from collections import OrderedDict
 
@@ -52,19 +53,12 @@ class SymbolicMath:
         n_qssa_species = species_info.n_qssa_species
 
         self.T_smp = sme.symbols("T")
-        # Keep tc as symbols so we don't compute powers all the time
-        # self.tc_smp = [
-        #    sme.log(self.T_smp),
-        #    self.T_smp,
-        #    self.T_smp**2,
-        #    self.T_smp**3,
-        #    self.T_smp**4,
-        # ]
-        self.tc_smp = [sme.symbols("tc[" + str(i) + "]") for i in range(5)]
-        # Keep invT as symbol so we don't do division all the time
-        # self.invT_smp = 1.0 / self.tc_smp[1]
         self.invT_smp = sme.symbols("invT")
         self.invT2_smp = self.invT_smp * self.invT_smp
+        self.logT_smp = sme.symbols("logT")
+        self.T2_smp = sme.symbols("T2")
+        self.T3_smp = sme.symbols("T3")
+        self.T4_smp = sme.symbols("T4")
 
         # Keep refC and refCinv as symbols to avoid doing divisions all the time
         # coeff1 = cc.Patm_pa
@@ -90,33 +84,20 @@ class SymbolicMath:
             for j in range(n_species + 1)
         ]
 
-        # temporary symbols that contain temperature dependence
-
-        species_coeffs = cth.analyze_thermodynamics(mechanism, species_info, 0)
-        low_temp, high_temp, midpoints = species_coeffs
-        self.midpointsList = []
-        for mid_temp, _ in list(midpoints.items()):
-            self.midpointsList.append(mid_temp)
-        self.midpointsList_sorted = sorted(self.midpointsList)
-
-        self.g_RT_smp_tmp = {}
-        self.h_RT_smp_tmp = {}
-
-        for mid_temp in self.midpointsList_sorted:
-            self.g_RT_smp_tmp[mid_temp] = {}
-            self.h_RT_smp_tmp[mid_temp] = {}
-            self.g_RT_smp_tmp[mid_temp]["m"] = [
-                sme.symbols("g_RT[" + str(i) + "]") for i in range(n_species)
-            ]
-            self.g_RT_smp_tmp[mid_temp]["p"] = [
-                sme.symbols("g_RT[" + str(i) + "]") for i in range(n_species)
-            ]
-            self.h_RT_smp_tmp[mid_temp]["m"] = [
-                sme.symbols("h_RT[" + str(i) + "]") for i in range(n_species)
-            ]
-            self.h_RT_smp_tmp[mid_temp]["p"] = [
-                sme.symbols("h_RT[" + str(i) + "]") for i in range(n_species)
-            ]
+        models = cth.analyze_thermodynamics(
+            mechanism, species_info.nonqssa_species_list
+        )
+        self.models_smp_tmp = [
+            {
+                "species": x["species"],
+                "interval": x["interval"],
+                "gibbs": [None] * len(x["coefficients"]),
+                "gibbs_qss": [None] * len(x["coefficients"]),
+                "speciesEnthalpy": [None] * len(x["coefficients"]),
+                "speciesEnthalpy_qss": [None] * len(x["coefficients"]),
+            }
+            for x in models
+        ]
 
         # mixture (useful for third body reactions)
         self.mixture_smp = 0.0
@@ -149,36 +130,20 @@ class SymbolicMath:
                 sme.symbols("h_RT_qss[" + str(i) + "]") for i in range(n_qssa_species)
             ]
 
-            # temporary symbols that contain temperature dependence
-            qss_species_coeffs = cth.analyze_thermodynamics(mechanism, species_info, 1)
-            low_temp, high_temp, midpoints = qss_species_coeffs
-            self.midpointsQSSList = []
-            for mid_temp, _ in list(midpoints.items()):
-                self.midpointsQSSList.append(mid_temp)
-            self.midpointsQSSList_sorted = sorted(self.midpointsQSSList)
-
-            self.g_RT_qss_smp_tmp = {}
-            self.h_RT_qss_smp_tmp = {}
-
-            for mid_temp in self.midpointsQSSList_sorted:
-                self.g_RT_qss_smp_tmp[mid_temp] = {}
-                self.h_RT_qss_smp_tmp[mid_temp] = {}
-                self.g_RT_qss_smp_tmp[mid_temp]["m"] = [
-                    sme.symbols("g_RT_qss[" + str(i) + "]")
-                    for i in range(n_qssa_species)
-                ]
-                self.g_RT_qss_smp_tmp[mid_temp]["p"] = [
-                    sme.symbols("g_RT_qss[" + str(i) + "]")
-                    for i in range(n_qssa_species)
-                ]
-                self.h_RT_qss_smp_tmp[mid_temp]["m"] = [
-                    sme.symbols("h_RT_qss[" + str(i) + "]")
-                    for i in range(n_qssa_species)
-                ]
-                self.h_RT_qss_smp_tmp[mid_temp]["p"] = [
-                    sme.symbols("h_RT_qss[" + str(i) + "]")
-                    for i in range(n_qssa_species)
-                ]
+            models = cth.analyze_thermodynamics(
+                mechanism, species_info.qssa_species_list
+            )
+            self.models_qss_smp_tmp = [
+                {
+                    "species": x["species"],
+                    "interval": x["interval"],
+                    "gibbs": [None] * len(x["coefficients"]),
+                    "gibbs_qss": [None] * len(x["coefficients"]),
+                    "speciesEnthalpy": [None] * len(x["coefficients"]),
+                    "speciesEnthalpy_qss": [None] * len(x["coefficients"]),
+                }
+                for x in models
+            ]
 
             self.kf_qss_smp_tmp = [
                 sme.symbols("kf_qss[" + str(i) + "]") for i in range(n_qssa_reactions)
@@ -712,7 +677,7 @@ class SymbolicMath:
                 if ind_cse:
                     # This is the symbol we would like to replace
                     target_replace = ind_cse[-1]
-                    # Make sure that we havent replaced it already
+                    # Make sure that we haven't replaced it already
                     while (
                         target_replace < n_cse
                         and common_expr_lhs[target_replace] in to_replace

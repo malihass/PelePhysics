@@ -1,5 +1,5 @@
 """Production functions."""
-import sys
+
 from math import isclose
 
 import symengine as sme
@@ -21,9 +21,7 @@ def production_rate(
     n_qss_species = species_info.n_qssa_species
     n_reactions = mechanism.n_reactions
 
-    if len(reaction_info.index) != 7:
-        print("\n\nCheck this!!!\n")
-        sys.exit(1)
+    assert len(reaction_info.index) == 7
 
     itroe = reaction_info.index[0:2]
     isri = reaction_info.index[1:3]
@@ -54,7 +52,7 @@ def production_rate(
                 "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void"
                 " comp_qfqr(amrex::Real *  qf, amrex::Real * qr, const"
                 " amrex::Real * sc, const amrex::Real * sc_qss, const"
-                " amrex::Real * tc, const amrex::Real invT)",
+                " amrex::Real T, const amrex::Real invT, const amrex::Real logT)",
             )
         else:
             cw.writer(
@@ -62,15 +60,15 @@ def production_rate(
                 "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void"
                 " comp_qfqr(amrex::Real *  qf, amrex::Real * qr, const"
                 " amrex::Real * sc, const amrex::Real * /*sc_qss*/,const"
-                " amrex::Real * tc, const amrex::Real invT)",
+                " amrex::Real T, const amrex::Real invT, const amrex::Real logT)",
             )
     else:
         cw.writer(
             fstream,
-            "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void"
-            " comp_qfqr(amrex::Real * /*qf*/, amrex::Real * /*qr*/, const"
-            " amrex::Real * /*sc*/, const amrex::Real * /*sc_qss*/, const"
-            " amrex::Real * /*tc*/, const amrex::Real /*invT*/)",
+            "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void comp_qfqr(amrex::Real *"
+            " /*qf*/, amrex::Real * /*qr*/, const amrex::Real * /*sc*/, const"
+            " amrex::Real * /*sc_qss*/, const amrex::Real /*T*/, const amrex::Real"
+            " /*invT*/, const amrex::Real /*logT*/)",
         )
     cw.writer(fstream, "{")
 
@@ -142,13 +140,13 @@ def production_rate(
         # Kc stuff
         cw.writer(fstream, cw.comment("compute the Gibbs free energy"))
         cw.writer(fstream, f"amrex::Real g_RT[{species_info.n_species}];")
-        cw.writer(fstream, "gibbs(g_RT, tc);")
+        cw.writer(fstream, "gibbs(g_RT, T);")
         if species_info.n_qssa_species > 0:
             cw.writer(
                 fstream,
                 f"amrex::Real g_RT_qss[{species_info.n_qssa_species}];",
             )
-            cw.writer(fstream, "gibbs_qss(g_RT_qss, tc);")
+            cw.writer(fstream, "gibbs_qss(g_RT_qss, T);")
 
         cw.writer(fstream)
 
@@ -190,27 +188,37 @@ def production_rate(
             else:
                 dim = cu.phase_space_units(reaction.reactants)
             third_body = reaction.third_body is not None
+            plog = reaction.rate.type == "pressure-dependent-Arrhenius"
             falloff = reaction.rate.type == "falloff"
             is_troe = reaction.rate.sub_type == "Troe"
             is_sri = reaction.rate.sub_type == "Sri"
             is_lindemann = reaction.rate.sub_type == "Lindemann"
             aeuc = cu.activation_energy_units()
-            if not third_body and not falloff:
-                # Case 3 !PD, !TB
+            if not third_body and not falloff and not plog:
+                # Case 3 !PD, !TB, !PLOG
                 ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), 1 - dim)
                 pef = (reaction.rate.pre_exponential_factor * ctuc).to_base_units()
                 beta = reaction.rate.temperature_exponent
                 ae = (
                     reaction.rate.activation_energy * cc.ureg.joule / cc.ureg.kmol
                 ).to(aeuc)
-            elif not falloff:
-                # Case 2 !PD, TB
+            elif not falloff and not plog:
+                # Case 2 !PD, TB, !PLOG
                 ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), -dim)
                 pef = (reaction.rate.pre_exponential_factor * ctuc).to_base_units()
                 beta = reaction.rate.temperature_exponent
                 ae = (
                     reaction.rate.activation_energy * cc.ureg.joule / cc.ureg.kmol
                 ).to(aeuc)
+            elif plog:
+                # Case 4 PLOG
+                ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), 1 - dim)
+                plog_pef, plog_beta, plog_ae = cu.evaluate_plog(
+                    reaction.rate.rates, mechanism.P
+                )
+                pef = (plog_pef * ctuc).to_base_units()
+                beta = plog_beta
+                ae = (plog_ae * cc.ureg.joule / cc.ureg.kmol).to(aeuc)
             else:
                 # Case 1 PD, TB
                 ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), 1 - dim)
@@ -242,11 +250,10 @@ def production_rate(
                 elif is_lindemann:
                     pass
                 else:
-                    print(
+                    raise ValueError(
                         f"Unrecognized reaction rate type {reaction.rate.type},"
                         f" {reaction.rate.sub_type} for reaction: {reaction.equation}"
                     )
-                    sys.exit(1)
 
             cw.writer(
                 fstream,
@@ -257,7 +264,7 @@ def production_rate(
                 cw.writer(fstream, "           ;")
             else:
                 if ae == 0:
-                    cw.writer(fstream, f"           * exp(({beta:.15g}) * tc[0]);")
+                    cw.writer(fstream, f"           * exp(({beta:.15g}) * logT);")
                 elif beta == 0:
                     cw.writer(
                         fstream,
@@ -268,7 +275,7 @@ def production_rate(
                 else:
                     cw.writer(
                         fstream,
-                        f"           * exp(({beta:.15g}) * tc[0] -"
+                        f"           * exp(({beta:.15g}) * logT -"
                         f" ({(1.0 / cc.Rc / cc.ureg.kelvin * ae).m:.15g})"
                         " * invT);",
                     )
@@ -302,7 +309,7 @@ def production_rate(
                 elif low_ae.m == 0:
                     cw.writer(
                         fstream,
-                        f"           * exp({low_beta:.15g}  * tc[0]);",
+                        f"           * exp({low_beta:.15g}  * logT);",
                     )
                 elif low_beta == 0:
                     cw.writer(
@@ -314,7 +321,7 @@ def production_rate(
                 else:
                     cw.writer(
                         fstream,
-                        f"           * exp({low_beta:.15g}  * tc[0] -"
+                        f"           * exp({low_beta:.15g}  * logT -"
                         f" ({(1.0 / cc.Rc / cc.ureg.kelvin * low_ae).m:.15g})"
                         " *invT);",
                     )
@@ -326,7 +333,7 @@ def production_rate(
                         if 1.0 - troe[0] != 0:
                             cw.writer(
                                 fstream,
-                                f"    ({1.0 - troe[0]:.15g})*exp(-tc[1] *"
+                                f"    ({1.0 - troe[0]:.15g})*exp(-T *"
                                 f" {1 / troe[1]:.15g})",
                             )
                     else:
@@ -335,13 +342,12 @@ def production_rate(
                         if troe[0] == 1:
                             cw.writer(
                                 fstream,
-                                f"    + exp(-tc[1] * {1 / troe[2]:.15g})",
+                                f"    + exp(-T * {1 / troe[2]:.15g})",
                             )
                         else:
                             cw.writer(
                                 fstream,
-                                f"    + {troe[0]:.15g} * exp(-tc[1] *"
-                                f" {1 / troe[2]:.15g})",
+                                f"    + {troe[0]:.15g} * exp(-T * {1 / troe[2]:.15g})",
                             )
                     else:
                         cw.writer(fstream, "    + 0.0 ")
@@ -382,13 +388,13 @@ def production_rate(
                             f" exp(-{sri[1]:.15g}*invT)",
                         )
                     if sri[2] > 1.0e-100:
-                        cw.writer(fstream, f"   +  exp(tc[0]/{sri[2]:.15g}) ")
+                        cw.writer(fstream, f"   +  exp(logT/{sri[2]:.15g}) ")
                     else:
                         cw.writer(fstream, "   +  0. ")
                     cw.writer(
                         fstream,
                         f"   *  ({nsri} > 3 ?"
-                        f" {sri[3]:.15g}*exp({sri[4]:.15g}*tc[0]) : 1.0);",
+                        f" {sri[3]:.15g}*exp({sri[4]:.15g}*logT : 1.0);",
                     )
                     cw.writer(fstream, "Corr = F * F_sri;")
                     cw.writer(fstream, f"qf[{idx}] *= Corr * k_f;")
@@ -447,12 +453,8 @@ def production_rate(
     if n_reactions == 0:
         cw.writer(fstream)
     else:
-        cw.writer(
-            fstream,
-            "const amrex::Real tc[5] = { log(T), T, T*T, T*T*T, T*T*T*T };"
-            + cw.comment("temperature cache"),
-        )
-        cw.writer(fstream, "const amrex::Real invT = 1.0 / tc[1];")
+        cw.writer(fstream, "const amrex::Real invT = 1.0 / T;")
+        cw.writer(fstream, "const amrex::Real logT = log(T);")
         cw.writer(fstream)
         cw.writer(
             fstream,
@@ -498,13 +500,13 @@ def production_rate(
         # Kc stuff
         cw.writer(fstream, cw.comment("compute the Gibbs free energy"))
         cw.writer(fstream, f"amrex::Real g_RT[{species_info.n_species}];")
-        cw.writer(fstream, "gibbs(g_RT, tc);")
+        cw.writer(fstream, "gibbs(g_RT, T);")
         if species_info.n_qssa_species > 0:
             cw.writer(
                 fstream,
                 f"amrex::Real g_RT_qss[{species_info.n_qssa_species}];",
             )
-            cw.writer(fstream, "gibbs_qss(g_RT_qss, tc);")
+            cw.writer(fstream, "gibbs_qss(g_RT_qss, T);")
         cw.writer(fstream)
 
         if species_info.n_qssa_species > 0:
@@ -519,11 +521,11 @@ def production_rate(
                 f" qr_qss[{reaction_info.n_qssa_reactions}];",
             )
             cw.writer(fstream, cw.comment("Fill sc_qss here"))
-            cw.writer(fstream, "comp_k_f_qss(tc, invT, kf_qss);")
+            cw.writer(fstream, "comp_k_f_qss(T, invT, logT, kf_qss);")
             # cw.writer(fstream,"comp_Kc_qss(invT, g_RT, g_RT_qss, Kc_qss);")
             cw.writer(
                 fstream,
-                "comp_qss_coeff(kf_qss, qf_qss, qr_qss, sc, tc, g_RT, g_RT_qss);",
+                "comp_qss_coeff(kf_qss, qf_qss, qr_qss, sc, T, g_RT, g_RT_qss);",
             )
             cw.writer(fstream, "comp_sc_qss(sc_qss, qf_qss, qr_qss);")
             cw.writer(fstream)
@@ -561,12 +563,13 @@ def production_rate(
                 dim = cu.phase_space_units(reaction.reactants)
 
             third_body = reaction.third_body is not None
+            plog = reaction.rate.type == "pressure-dependent-Arrhenius"
             falloff = reaction.rate.type == "falloff"
             is_troe = reaction.rate.sub_type == "Troe"
             is_sri = reaction.rate.sub_type == "Sri"
             is_lindemann = reaction.rate.sub_type == "Lindemann"
             aeuc = cu.activation_energy_units()
-            if not third_body and not falloff:
+            if not third_body and not falloff and not plog:
                 # Case 3 !PD, !TB
                 ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), 1 - dim)
                 pef = (reaction.rate.pre_exponential_factor * ctuc).to_base_units()
@@ -574,16 +577,25 @@ def production_rate(
                 ae = (
                     reaction.rate.activation_energy * cc.ureg.joule / cc.ureg.kmol
                 ).to(aeuc)
-            elif not falloff:
-                # Case 2 !PD, TB
+            elif not falloff and not plog:
+                # Case 2 !PD, TB, !PLOG
                 ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), -dim)
                 pef = (reaction.rate.pre_exponential_factor * ctuc).to_base_units()
                 beta = reaction.rate.temperature_exponent
                 ae = (
                     reaction.rate.activation_energy * cc.ureg.joule / cc.ureg.kmol
                 ).to(aeuc)
+            elif not third_body and not falloff and plog:
+                # Case 4 PLOG
+                ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), 1 - dim)
+                plog_pef, plog_beta, plog_ae = cu.evaluate_plog(
+                    reaction.rate.rates, mechanism.P
+                )
+                pef = (plog_pef * ctuc).to_base_units()
+                beta = plog_beta
+                ae = (plog_ae * cc.ureg.joule / cc.ureg.kmol).to(aeuc)
             else:
-                # Case 1 PD, TB
+                # Case 1 PD, TB, !PLOG
                 ctuc = cu.prefactor_units(cc.ureg("kmol/m**3"), 1 - dim)
                 pef = (
                     reaction.rate.high_rate.pre_exponential_factor * ctuc
@@ -613,11 +625,10 @@ def production_rate(
                 elif is_lindemann:
                     pass
                 else:
-                    print(
+                    raise ValueError(
                         f"Unrecognized reaction rate type {reaction.rate.type},"
                         f" {reaction.rate.sub_type} for reaction: {reaction.equation}"
                     )
-                    sys.exit(1)
 
                 low_beta = syms.convert_number_to_int(low_beta)
 
@@ -635,8 +646,8 @@ def production_rate(
                 cw.writer(fstream, "           ;")
             else:
                 if ae == 0:
-                    cw.writer(fstream, f"           * exp(({beta:.15g}) * tc[0]);")
-                    k_f_smp *= sme.exp(beta * syms.tc_smp[0])
+                    cw.writer(fstream, f"           * exp(({beta:.15g}) * logT);")
+                    k_f_smp *= sme.exp(beta * syms.logT_smp)
                 elif beta == 0:
                     cw.writer(
                         fstream,
@@ -649,12 +660,12 @@ def production_rate(
                 else:
                     cw.writer(
                         fstream,
-                        f"           * exp(({beta:.15g}) * tc[0] -"
+                        f"           * exp(({beta:.15g}) * logT -"
                         f" ({(1.0 / cc.Rc / cc.ureg.kelvin * ae).m:.15g})"
                         " * invT);",
                     )
                     coeff = ((1.0 / cc.Rc / cc.ureg.kelvin)) * ae
-                    k_f_smp *= sme.exp(beta * syms.tc_smp[0] - coeff * syms.invT_smp)
+                    k_f_smp *= sme.exp(beta * syms.logT_smp - coeff * syms.invT_smp)
 
             alpha = None
             if not third_body and not falloff:
@@ -696,9 +707,7 @@ def production_rate(
                     f" {10 ** (-dim * 6) * low_pef.m * 10 ** 3 ** dim:.15g} ",
                 )
                 redp_smp = (
-                    corr_smp
-                    / k_f_smp
-                    * (10 ** (-dim * 6) * low_pef.m * 10 ** (3**dim))
+                    corr_smp / k_f_smp * (10 ** (-dim * 6) * low_pef.m * 10 ** (3**dim))
                 )
                 if (low_beta == 0) and (low_ae.m == 0):
                     cw.writer(
@@ -708,7 +717,7 @@ def production_rate(
                 elif low_ae.m == 0:
                     cw.writer(
                         fstream,
-                        f"           * exp({low_beta:.15g} * tc[0]);",
+                        f"           * exp({low_beta:.15g} * logT);",
                     )
                 elif low_beta == 0:
                     cw.writer(
@@ -720,12 +729,12 @@ def production_rate(
                 else:
                     cw.writer(
                         fstream,
-                        f"           * exp({low_beta:.15g} * tc[0] -"
+                        f"           * exp({low_beta:.15g} * logT -"
                         f" {(1.0 / cc.Rc / cc.ureg.kelvin * low_ae).m:.15g} *"
                         " invT);",
                     )
                 coeff = (1.0 / cc.Rc / cc.ureg.kelvin * low_ae).magnitude
-                redp_smp *= sme.exp(low_beta * syms.tc_smp[0] - coeff * syms.invT_smp)
+                redp_smp *= sme.exp(low_beta * syms.logT_smp - coeff * syms.invT_smp)
                 if is_troe:
                     cw.writer(fstream, "const amrex::Real F = redP / (1.0 + redP);")
                     f_smp = redp_smp / (1.0 + redp_smp)
@@ -737,13 +746,13 @@ def production_rate(
                         if 1.0 - troe[0] != 0:
                             cw.writer(
                                 fstream,
-                                f"    {1.0 - troe[0]:.15g} * exp(-tc[1] *"
+                                f"    {1.0 - troe[0]:.15g} * exp(-T *"
                                 f" {1 / troe[1]:.15g})",
                             )
                             first_factor = syms.convert_number_to_int(1.0 - troe[0])
                             second_factor = syms.convert_number_to_int(-1 / troe[1])
                             int_smp += first_factor * sme.exp(
-                                syms.tc_smp[1] * second_factor
+                                syms.T_smp * second_factor
                             )
                     else:
                         cw.writer(fstream, "     0.0 ")
@@ -751,13 +760,12 @@ def production_rate(
                         if troe[0] != 0:
                             cw.writer(
                                 fstream,
-                                f"    + {troe[0]:.15g} * exp(-tc[1] *"
-                                f" {1 / troe[2]:.15g})",
+                                f"    + {troe[0]:.15g} * exp(-T * {1 / troe[2]:.15g})",
                             )
                             first_factor = syms.convert_number_to_int(troe[0])
                             second_factor = syms.convert_number_to_int(-1 / troe[2])
                             int_smp += first_factor * sme.exp(
-                                syms.tc_smp[1] * second_factor
+                                syms.T_smp * second_factor
                             )
                     else:
                         cw.writer(fstream, "    + 0.0 ")
@@ -818,7 +826,7 @@ def production_rate(
                             f" exp({-sri[1]:.15g} * invT)",
                         )
                         if syms is not None:
-                            sys.exit("Not done for now")
+                            raise NotImplementedError("Not done for now")
                     else:
                         cw.writer(
                             fstream,
@@ -826,22 +834,22 @@ def production_rate(
                             f" exp(-{sri[1]:.15g} * invT)",
                         )
                         if syms is not None:
-                            sys.exit("Not done for now")
+                            raise NotImplementedError("Not done for now")
                     if sri[2] > 1.0e-100:
-                        cw.writer(fstream, f"   +  exp(tc[0] / {sri[2]:.15g}) ")
+                        cw.writer(fstream, f"   +  exp(logT / {sri[2]:.15g}) ")
                         if syms is not None:
-                            sys.exit("Not done for now")
+                            raise NotImplementedError("Not done for now")
                     else:
                         cw.writer(fstream, "   +  0. ")
                         if syms is not None:
-                            sys.exit("Not done for now")
+                            raise NotImplementedError("Not done for now")
                     cw.writer(
                         fstream,
                         f"   *  ({nsri} > 3 ? {sri[3]:.15g} *"
-                        f" exp({sri[4]:.15g} * tc[0]) : 1.0);",
+                        f" exp({sri[4]:.15g} * logT) : 1.0);",
                     )
                     if syms is not None:
-                        sys.exit("Not done for now")
+                        raise NotImplementedError("Not done for now")
                     cw.writer(fstream, "Corr = F * F_sri;")
                     cw.writer(
                         fstream,
@@ -939,11 +947,9 @@ def production_rate(
                 key=lambda v, dict_species=dict_species: dict_species[v[0]],
             )
             # Check for duplicates
-            if len(agents) != len(set(agents)):
-                message = f"Reaction {reaction} contains duplicate agents\n"
-                message += "This will create an issue for productionRate\n"
-                print(message)
-                sys.exit(1)
+            assert len(agents) == len(
+                set(agents)
+            ), f"Reaction {reaction} contains duplicate agents"
             # note that a species might appear as both reactant and product
             # a species might also appear twice or more on on each side
             # agents is a set that contains unique (symbol, coefficient)
@@ -1007,9 +1013,7 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
     n_species = species_info.n_species
     n_reactions = mechanism.n_reactions
 
-    if len(reaction_info.index) != 7:
-        print("\n\nCheck this!!!\n")
-        sys.exit(1)
+    assert len(reaction_info.index) == 7
 
     itroe = reaction_info.index[0:2]
     isri = reaction_info.index[1:3]
@@ -1046,8 +1050,9 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
         "amrex::Real * kf_qss,"
         "amrex::Real * qf_qss,"
         "amrex::Real * qr_qss,"
-        "const amrex::Real * tc,"
-        "const amrex::Real invT)",
+        "const amrex::Real T,"
+        "const amrex::Real invT,"
+        "const amrex::Real logT)",
     )
     cw.writer(fstream, "{")
 
@@ -1089,18 +1094,18 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
 
         # Kc stuff
         cw.writer(fstream, cw.comment("compute the Gibbs free energy"))
-        cw.writer(fstream, "gibbs(g_RT, tc);")
+        cw.writer(fstream, "gibbs(g_RT, T);")
         if species_info.n_qssa_species > 0:
-            cw.writer(fstream, "gibbs_qss(g_RT_qss, tc);")
+            cw.writer(fstream, "gibbs_qss(g_RT_qss, T);")
         cw.writer(fstream)
 
         if species_info.n_qssa_species > 0:
             cw.writer(fstream, cw.comment("Fill sc_qss here"))
-            cw.writer(fstream, "comp_k_f_qss(tc, invT, kf_qss);")
+            cw.writer(fstream, "comp_k_f_qss(T, invT, logT, kf_qss);")
             # cw.writer(fstream,"comp_Kc_qss(invT, g_RT, g_RT_qss, Kc_qss);")
             cw.writer(
                 fstream,
-                "comp_qss_coeff(kf_qss, qf_qss, qr_qss, sc, tc, g_RT, g_RT_qss);",
+                "comp_qss_coeff(kf_qss, qf_qss, qr_qss, sc, T, g_RT, g_RT_qss);",
             )
             cw.writer(fstream, "comp_sc_qss(sc_qss, qf_qss, qr_qss);")
             cw.writer(fstream)
@@ -1185,11 +1190,10 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                 elif is_lindemann:
                     pass
                 else:
-                    print(
+                    raise ValueError(
                         f"Unrecognized reaction rate type {reaction.rate.type},"
                         f" {reaction.rate.sub_type} for reaction: {reaction.equation}"
                     )
-                    sys.exit(1)
 
             cw.writer(
                 fstream,
@@ -1201,7 +1205,7 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                 cw.writer(fstream, "           ;")
             else:
                 if ae == 0:
-                    cw.writer(fstream, f"           * exp(({beta:.15g}) * tc[0]);")
+                    cw.writer(fstream, f"           * exp(({beta:.15g}) * logT);")
                 elif beta == 0:
                     cw.writer(
                         fstream,
@@ -1212,7 +1216,7 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                 else:
                     cw.writer(
                         fstream,
-                        f"           * exp(({beta:.15g}) * tc[0] -"
+                        f"           * exp(({beta:.15g}) * logT -"
                         f" ({(1.0 / cc.Rc / cc.ureg.kelvin * ae).m:.15g}) *"
                         " invT);",
                     )
@@ -1249,7 +1253,7 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                 )
                 cw.writer(
                     fstream,
-                    f"           * exp({low_beta:.15g} * tc[0] -"
+                    f"           * exp({low_beta:.15g} * logT -"
                     f" {(1.0 / cc.Rc / cc.ureg.kelvin * low_ae).m:.15g} *"
                     " invT);",
                 )
@@ -1261,7 +1265,7 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                         if 1.0 - troe[0] != 0:
                             cw.writer(
                                 fstream,
-                                f"    {1.0 - troe[0]:.15g} * exp(-tc[1] *"
+                                f"    {1.0 - troe[0]:.15g} * exp(-T *"
                                 f" {1 / troe[1]:.15g})",
                             )
                     else:
@@ -1270,8 +1274,7 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                         if troe[0] != 0:
                             cw.writer(
                                 fstream,
-                                f"    + {troe[0]:.15g} * exp(-tc[1] *"
-                                f" {1 / troe[2]:.15g})",
+                                f"    + {troe[0]:.15g} * exp(-T * {1 / troe[2]:.15g})",
                             )
                     else:
                         cw.writer(fstream, "    + 0.0 ")
@@ -1322,13 +1325,13 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                             f" exp(-{sri[1]:.15g} * invT)",
                         )
                     if sri[2] > 1.0e-100:
-                        cw.writer(fstream, f"   +  exp(tc[0] / {sri[2]:.15g}) ")
+                        cw.writer(fstream, f"   +  exp(logT / {sri[2]:.15g}) ")
                     else:
                         cw.writer(fstream, "   +  0. ")
                     cw.writer(
                         fstream,
                         f"   *  ({nsri} > 3 ? {sri[3]:.15g} *"
-                        f" exp({sri[4]:.15g} * tc[0]) : 1.0);",
+                        f" exp({sri[4]:.15g} * logT) : 1.0);",
                     )
                     cw.writer(fstream, "Corr = F * F_sri;")
                     cw.writer(
@@ -1405,11 +1408,9 @@ def production_rate_light(fstream, mechanism, species_info, reaction_info):
                 key=lambda v, dict_species=dict_species: dict_species[v[0]],
             )
             # Check for duplicates
-            if len(agents) != len(set(agents)):
-                message = f"Reaction {reaction} contains duplicate agents\n"
-                message += "This will create an issue for productionRate_light\n"
-                print(message)
-                sys.exit(1)
+            assert len(agents) == len(
+                set(agents)
+            ), f"Reaction {reaction} contains duplicate agents"
             # note that a species might appear as both reactant and product
             # a species might also appear twice or more on on each side
             # agents is a set that contains unique (symbol, coefficient)
@@ -1458,49 +1459,41 @@ def progress_rate_fr(fstream, mechanism, species_info, reaction_info):
     """Write progress rates."""
     n_reactions = mechanism.n_reactions
 
-    if len(reaction_info.index) != 7:
-        print("\n\nCheck this!!!\n")
-        sys.exit(1)
+    assert len(reaction_info.index) == 7
 
     cw.writer(fstream)
     cw.writer(fstream, cw.comment("compute the progress rate for each reaction"))
     cw.writer(fstream, cw.comment("USES progressRate : todo switch to GPU"))
-    cw.writer(
-        fstream,
-        "void progressRateFR"
-        + "(amrex::Real *  q_f, amrex::Real *  q_r, amrex::Real *  sc, amrex::Real T)",
-    )
-    cw.writer(fstream, "{")
-
     if n_reactions > 0:
         cw.writer(
             fstream,
-            "const amrex::Real tc[5] = { log(T), T, T*T, T*T*T, T*T*T*T };"
-            + cw.comment("temperature cache"),
+            "void progressRateFR"
+            + "(amrex::Real *  q_f, amrex::Real *  q_r, amrex::Real *  sc,"
+            " amrex::Real T)",
         )
-        cw.writer(fstream, "amrex::Real invT = 1.0 / tc[1];")
+    else:
+        cw.writer(
+            fstream,
+            "void progressRateFR"
+            + "(amrex::Real *  /*q_f*/, amrex::Real *  /*q_r*/, amrex::Real *  /*sc*/,"
+            " amrex::Real /*T*/)",
+        )
 
-        # cw.writer(fstream)
-        # cw.writer(fstream, "if (T != T_save)")
-        # cw.writer(fstream, "{")
-        # cw.writer(fstream, "T_save = T;")
-        # cw.writer(fstream, "comp_k_f(tc,invT,k_f_save);")
-        # cw.writer(fstream, "comp_Kc(tc,invT,Kc_save);")
-        # if species_info.n_qssa_species > 0:
-        #     cw.writer(fstream)
-        #     cw.writer(fstream, "comp_k_f_qss(tc,invT,k_f_save_qss);")
-        #     # cw.writer(fstream, "comp_Kc_qss(tc,invT,Kc_save_qss);")
-        # cw.writer(fstream, "}")
+    cw.writer(fstream, "{")
+
+    if n_reactions > 0:
+        cw.writer(fstream, "const amrex::Real invT = 1.0 / T;")
+        cw.writer(fstream, "const amrex::Real logT = log(T);")
 
         cw.writer(fstream, cw.comment("compute the Gibbs free energy"))
         cw.writer(fstream, f"amrex::Real g_RT[{species_info.n_species}];")
-        cw.writer(fstream, "gibbs(g_RT, tc);")
+        cw.writer(fstream, "gibbs(g_RT, T);")
         if species_info.n_qssa_species > 0:
             cw.writer(
                 fstream,
                 f"amrex::Real g_RT_qss[{species_info.n_qssa_species}];",
             )
-            cw.writer(fstream, "gibbs_qss(g_RT_qss, tc);")
+            cw.writer(fstream, "gibbs_qss(g_RT_qss, T);")
 
         cw.writer(fstream)
         cw.writer(
@@ -1515,14 +1508,14 @@ def progress_rate_fr(fstream, mechanism, species_info, reaction_info):
                 f" qf_qss[{reaction_info.n_qssa_reactions}],"
                 f" qr_qss[{reaction_info.n_qssa_reactions}];",
             )
-            cw.writer(fstream, "comp_k_f_qss(tc, invT, kf_qss);")
+            cw.writer(fstream, "comp_k_f_qss(T, invT, logT, kf_qss);")
             cw.writer(
                 fstream,
-                "comp_qss_coeff(kf_qss, qf_qss, qr_qss, sc, tc, g_RT, g_RT_qss);",
+                "comp_qss_coeff(kf_qss, qf_qss, qr_qss, sc, T, g_RT, g_RT_qss);",
             )
             cw.writer(fstream, "comp_sc_qss(sc_qss, qf_qss, qr_qss);")
 
-        cw.writer(fstream, "comp_qfqr(q_f, q_r, sc, sc_qss, tc, invT);")
+        cw.writer(fstream, "comp_qfqr(q_f, q_r, sc, sc_qss, T, invT, logT);")
         cw.writer(fstream)
 
     cw.writer(fstream, "}")
@@ -1536,12 +1529,10 @@ def enhancement_d_with_qss(mechanism, species_info, reaction, syms=None):
     third_body = reaction.third_body is not None
     falloff = reaction.rate.type == "falloff"
     if not third_body and not falloff:
-        print("enhancement_d called for a reaction without a third body")
-        sys.exit(1)
+        raise ValueError("enhancement_d called for a reaction without a third body")
 
     if not reaction.third_body:
-        print("FIXME EFFICIENCIES")
-        sys.exit(1)
+        raise NotImplementedError("FIXME EFFICIENCIES")
         species, coefficient = third_body
         if species == "<mixture>":
             if record_symbolic_operations:

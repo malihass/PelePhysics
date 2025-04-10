@@ -1,11 +1,12 @@
 PELE_HOME         ?= ../../../..
-AMREX_HOME        ?= $(abspath $(lastword $(PELE_HOME)/Submodules/amrex))
 PELE_PHYSICS_HOME ?= $(abspath $(lastword $(PELE_HOME)/Submodules/PelePhysics))
-SUNDIALS_HOME     ?= $(abspath $(lastword $(PELE_HOME)/Submodules/sundials))
+AMREX_HOME        ?= $(abspath $(lastword $(PELE_PHYSICS_HOME)/Submodules/amrex))
+SUNDIALS_HOME     ?= $(abspath $(lastword $(PELE_PHYSICS_HOME)/Submodules/sundials))
 
-EOS_HOME          ?= $(PELE_PHYSICS_HOME)/Eos
-REACTIONS_HOME    ?= $(PELE_PHYSICS_HOME)/Reactions
-TRAN_HOME         ?= $(PELE_PHYSICS_HOME)/Transport
+EOS_HOME          ?= $(PELE_PHYSICS_HOME)/Source/Eos
+REACTIONS_HOME    ?= $(PELE_PHYSICS_HOME)/Source/Reactions
+TRAN_HOME         ?= $(PELE_PHYSICS_HOME)/Source/Transport
+UTILITY_HOME      ?= $(PELE_PHYSICS_HOME)/Source/Utility
 
 EBASE = Pele
 BL_NO_FORT = TRUE
@@ -38,6 +39,9 @@ Blocs             += $(PP_SRC_HOME)
 ifeq ($(PELE_COMPILE_AJACOBIAN), TRUE)
   DEFINES += -DPELE_COMPILE_AJACOBIAN
 endif
+ifeq ($(PELE_CVODE_FORCE_YCORDER), TRUE)
+  DEFINES += -DPELE_CVODE_FORCE_YCORDER
+endif
 
 # EOS
 # Both Fortran and cpp can be loaded for EOS
@@ -50,6 +54,20 @@ endif
 ifeq ($(Eos_Model),$(filter $(Eos_Model),Soave-Redlich-Kwong))
    DEFINES += -DUSE_SRK_EOS
 endif
+ifeq ($(Eos_Model),$(filter $(Eos_Model),Manifold))
+   DEFINES += -DUSE_MANIFOLD_EOS
+   DEFINES += -DMANIFOLD_DIM=$(Manifold_Dim)
+   ifeq ($(Manifold_Type),Table)
+      DEFINES += -DMANIFOLD_EOS_TYPE=1
+   else
+      ifeq ($(Manifold_Type),Network)
+         DEFINES += -DMANIFOLD_EOS_TYPE=2
+      else
+         DEFINES += -DMANIFOLD_EOS_TYPE=0
+      endif
+   endif
+endif
+
 INCLUDE_LOCATIONS += $(EOS_HOME)
 VPATH_LOCATIONS   += $(EOS_HOME)
 ifeq ($(Eos_Model), Fuego)
@@ -73,21 +91,18 @@ ifeq ($(Eos_Model), GammaLaw)
     $(error Chemistry_Model definition not compatible with Eos_Model=GammaLaw)
   endif
 endif
-CHEM_HOME = $(PELE_PHYSICS_HOME)/Support/Mechanism/Models/$(Chemistry_Model)
-CHEM_ALL  = $(PELE_PHYSICS_HOME)/Support/Mechanism/Models
+CHEM_HOME = $(PELE_PHYSICS_HOME)/Mechanisms/$(Chemistry_Model)
+CHEM_ALL  = $(PELE_PHYSICS_HOME)/Mechanisms
 VPATH_LOCATIONS += $(CHEM_HOME) $(CHEM_ALL)
 Bpack += $(CHEM_HOME)/Make.package \
          $(CHEM_ALL)/Make.package
 Blocs += $(CHEM_HOME) $(CHEM_ALL)
-Blocs   += $(PELE_PHYSICS_HOME)/Support/Evaluation
 
 # Transport
 include $(TRAN_HOME)/Make.package
 INCLUDE_LOCATIONS += $(TRAN_HOME)
 VPATH_LOCATIONS   += $(TRAN_HOME)
 USE_FUEGO = FALSE
-
-Blocs   += $(PELE_PHYSICS_HOME)/Support/Mechanism
 
 ifeq ($(Transport_Model), Simple)
   DEFINES += -DUSE_SIMPLE_TRANSPORT
@@ -102,11 +117,20 @@ endif
 ifeq ($(Transport_Model), Sutherland)
   DEFINES += -DUSE_SUTHERLAND_TRANSPORT
 endif
+ifeq ($(Transport_Model), Manifold)
+  DEFINES += -DUSE_MANIFOLD_TRANSPORT
+endif
 
 # Utilities
-include $(PELE_PHYSICS_HOME)/Utility/PMF/Make.package
-include $(PELE_PHYSICS_HOME)/Utility/PltFileManager/Make.package
-
+INCLUDE_LOCATIONS += $(UTILITY_HOME)
+VPATH_LOCATIONS   += $(UTILITY_HOME)
+include $(UTILITY_HOME)/Diagnostics/Make.package
+include $(UTILITY_HOME)/Filter/Make.package
+include $(UTILITY_HOME)/PMF/Make.package
+include $(UTILITY_HOME)/PltFileManager/Make.package
+include $(UTILITY_HOME)/TurbInflow/Make.package
+include $(UTILITY_HOME)/BlackBoxFunction/Make.package
+include $(UTILITY_HOME)/Utilities/Make.package
 
 Pdirs   := Base Boundary AmrCore
 
